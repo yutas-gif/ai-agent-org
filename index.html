@@ -346,13 +346,50 @@ const ini=n=>n.slice(0,2).toUpperCase();
 const ps=a=>PAL[a.pi??0];
 const now=()=>new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
 
-function loadData(){try{const s=localStorage.getItem('ai-agent-org-v4');if(s)return JSON.parse(s);}catch(e){}return null;}
+const GAS_URL='https://script.google.com/macros/s/AKfycbxdB5MZdA2AUMc4Mmd8K0oiCuMfpqHiN2F1MRpwKZpy9qmXO1mUc9WbnSCafTxnMs8/exec';
+
+function loadData(){
+  try{const s=localStorage.getItem('ai-agent-org-v4');if(s)return JSON.parse(s);}catch(e){}
+  return null;
+}
+
+let saveTimer=null;
 function saveData(){
   try{
     localStorage.setItem('ai-agent-org-v4',JSON.stringify(projects));
-    document.getElementById('save-indicator').textContent='自動保存済み ✓';
-    setTimeout(()=>{document.getElementById('save-indicator').textContent='自動保存済み'},2000);
+    document.getElementById('save-indicator').textContent='保存中...';
   }catch(e){}
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>syncToSheets(),1000);
+}
+
+async function syncToSheets(){
+  try{
+    await fetch(GAS_URL,{method:'POST',body:JSON.stringify(projects),headers:{'Content-Type':'text/plain'}});
+    document.getElementById('save-indicator').textContent='クラウド保存済み ✓';
+    setTimeout(()=>{document.getElementById('save-indicator').textContent='自動保存済み';},2000);
+  }catch(e){
+    document.getElementById('save-indicator').textContent='ローカル保存済み';
+  }
+}
+
+async function loadFromSheets(){
+  try{
+    document.getElementById('save-indicator').textContent='クラウドから読込中...';
+    const r=await fetch(GAS_URL+'?t='+Date.now());
+    const txt=await r.text();
+    const data=JSON.parse(txt);
+    if(Array.isArray(data)&&data.length>0){
+      projects=data;
+      localStorage.setItem('ai-agent-org-v4',JSON.stringify(projects));
+      document.getElementById('save-indicator').textContent='クラウドから読込完了 ✓';
+      setTimeout(()=>{document.getElementById('save-indicator').textContent='自動保存済み';},2000);
+      return true;
+    }
+  }catch(e){
+    document.getElementById('save-indicator').textContent='ローカルデータを使用中';
+  }
+  return false;
 }
 
 let projects=loadData()||[
@@ -467,7 +504,14 @@ function confirmDelete(){
   cur=null;
   document.getElementById('mh').style.display='none';
   document.getElementById('main-body').style.display='none';
-  initKeys();renderSB();showDash();toast('プロジェクトを削除しました');
+  initKeys();
+(async()=>{
+  const loaded=await loadFromSheets();
+  if(!loaded){
+    // localStorageのデータをそのまま使用
+  }
+  renderSB();showDash();
+})();toast('プロジェクトを削除しました');
 }
 
 // ---- title edit ----
@@ -865,7 +909,14 @@ async function riskAnalysis(){
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
 
 // ---- init ----
-initKeys();renderSB();showDash();
+initKeys();
+(async()=>{
+  const loaded=await loadFromSheets();
+  if(!loaded){
+    // localStorageのデータをそのまま使用
+  }
+  renderSB();showDash();
+})();
 </script>
 </body>
 </html>
