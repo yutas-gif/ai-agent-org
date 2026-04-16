@@ -365,7 +365,8 @@ function saveData(){
 
 async function syncToSheets(){
   try{
-    await fetch(GAS_URL,{method:'POST',body:JSON.stringify(projects),headers:{'Content-Type':'text/plain'}});
+    // no-corsでPOST（レスポンスは読めないが書き込みは成功する）
+    fetch(GAS_URL,{method:'POST',body:JSON.stringify(projects),headers:{'Content-Type':'text/plain'},mode:'no-cors'});
     document.getElementById('save-indicator').textContent='クラウド保存済み ✓';
     setTimeout(()=>{document.getElementById('save-indicator').textContent='自動保存済み';},2000);
   }catch(e){
@@ -373,23 +374,33 @@ async function syncToSheets(){
   }
 }
 
-async function loadFromSheets(){
-  try{
+function loadFromSheets(){
+  return new Promise((resolve)=>{
     document.getElementById('save-indicator').textContent='クラウドから読込中...';
-    const r=await fetch(GAS_URL+'?t='+Date.now());
-    const txt=await r.text();
-    const data=JSON.parse(txt);
-    if(Array.isArray(data)&&data.length>0){
-      projects=data;
-      localStorage.setItem('ai-agent-org-v4',JSON.stringify(projects));
-      document.getElementById('save-indicator').textContent='クラウドから読込完了 ✓';
-      setTimeout(()=>{document.getElementById('save-indicator').textContent='自動保存済み';},2000);
-      return true;
-    }
-  }catch(e){
-    document.getElementById('save-indicator').textContent='ローカルデータを使用中';
-  }
-  return false;
+    const cbName='gasCallback_'+Date.now();
+    const script=document.createElement('script');
+    const timer=setTimeout(()=>{
+      delete window[cbName];script.remove();
+      document.getElementById('save-indicator').textContent='ローカルデータを使用中';
+      resolve(false);
+    },8000);
+    window[cbName]=function(data){
+      clearTimeout(timer);delete window[cbName];script.remove();
+      try{
+        if(Array.isArray(data)&&data.length>0){
+          projects=data;
+          localStorage.setItem('ai-agent-org-v4',JSON.stringify(projects));
+          document.getElementById('save-indicator').textContent='クラウドから読込完了 ✓';
+          setTimeout(()=>{document.getElementById('save-indicator').textContent='自動保存済み';},2000);
+          resolve(true);return;
+        }
+      }catch(e){}
+      document.getElementById('save-indicator').textContent='ローカルデータを使用中';
+      resolve(false);
+    };
+    script.src=GAS_URL+'?callback='+cbName+'&t='+Date.now();
+    document.head.appendChild(script);
+  });
 }
 
 let projects=loadData()||[
