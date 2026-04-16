@@ -364,62 +364,41 @@ function saveData(){
 }
 
 async function syncToSheets(){
-  return new Promise((resolve)=>{
-    const xhr=new XMLHttpRequest();
-    xhr.open('POST',GAS_URL,true);
-    xhr.setRequestHeader('Content-Type','text/plain');
-    xhr.onload=function(){
-      document.getElementById('save-indicator').textContent='クラウド保存済み ✓';
-      setTimeout(()=>{document.getElementById('save-indicator').textContent='自動保存済み';},2000);
-      resolve(true);
-    };
-    xhr.onerror=function(){
-      document.getElementById('save-indicator').textContent='ローカル保存済み';
-      resolve(false);
-    };
-    xhr.send(JSON.stringify(projects));
-  });
+  try{
+    await fetch(GAS_URL,{
+      method:'POST',
+      mode:'no-cors',
+      body:JSON.stringify(projects),
+      headers:{'Content-Type':'text/plain'}
+    });
+    document.getElementById('save-indicator').textContent='クラウド保存済み ✓';
+    setTimeout(()=>{document.getElementById('save-indicator').textContent='自動保存済み';},2000);
+  }catch(e){
+    document.getElementById('save-indicator').textContent='ローカル保存済み';
+  }
 }
 
 function loadFromSheets(){
   return new Promise((resolve)=>{
     document.getElementById('save-indicator').textContent='クラウドから読込中...';
-    const cbName='cb'+Date.now();
-    window[cbName]=function(data){
-      delete window[cbName];
-      try{
-        if(Array.isArray(data)&&data.length>0){
-          projects=data;
+    fetch(GAS_URL+'?t='+Date.now())
+      .then(r=>r.json())
+      .then(json=>{
+        if(json.ok&&Array.isArray(json.data)&&json.data.length>0){
+          projects=json.data;
           localStorage.setItem('ai-agent-org-v4',JSON.stringify(projects));
           document.getElementById('save-indicator').textContent='クラウドから読込完了 ✓';
           setTimeout(()=>{document.getElementById('save-indicator').textContent='自動保存済み';},2000);
-          resolve(true);return;
+          resolve(true);
+        }else{
+          document.getElementById('save-indicator').textContent='ローカルデータを使用中';
+          resolve(false);
         }
-      }catch(e){}
-      document.getElementById('save-indicator').textContent='ローカルデータを使用中';
-      resolve(false);
-    };
-    // scriptタグをdocument.writeで強制的に同期読み込み
-    const url=GAS_URL+'?callback='+cbName+'&t='+Date.now();
-    fetch(url,{mode:'no-cors'}).catch(()=>{});
-    // XHRでリダイレクト先を追う
-    const xhr=new XMLHttpRequest();
-    xhr.open('GET',url,true);
-    xhr.onload=function(){
-      try{
-        const txt=xhr.responseText;
-        const match=txt.match(/\w+\(([\s\S]*)\)/);
-        if(match){
-          const data=JSON.parse(match[1]);
-          window[cbName](data);return;
-        }
-      }catch(e){}
-      window[cbName]([]);
-    };
-    xhr.onerror=function(){window[cbName]([]);};
-    xhr.timeout=8000;
-    xhr.ontimeout=function(){window[cbName]([]);};
-    xhr.send();
+      })
+      .catch(()=>{
+        document.getElementById('save-indicator').textContent='ローカルデータを使用中';
+        resolve(false);
+      });
   });
 }
 
