@@ -364,28 +364,29 @@ function saveData(){
 }
 
 async function syncToSheets(){
-  try{
-    // no-corsでPOST（レスポンスは読めないが書き込みは成功する）
-    fetch(GAS_URL,{method:'POST',body:JSON.stringify(projects),headers:{'Content-Type':'text/plain'},mode:'no-cors'});
-    document.getElementById('save-indicator').textContent='クラウド保存済み ✓';
-    setTimeout(()=>{document.getElementById('save-indicator').textContent='自動保存済み';},2000);
-  }catch(e){
-    document.getElementById('save-indicator').textContent='ローカル保存済み';
-  }
+  return new Promise((resolve)=>{
+    const xhr=new XMLHttpRequest();
+    xhr.open('POST',GAS_URL,true);
+    xhr.setRequestHeader('Content-Type','text/plain');
+    xhr.onload=function(){
+      document.getElementById('save-indicator').textContent='クラウド保存済み ✓';
+      setTimeout(()=>{document.getElementById('save-indicator').textContent='自動保存済み';},2000);
+      resolve(true);
+    };
+    xhr.onerror=function(){
+      document.getElementById('save-indicator').textContent='ローカル保存済み';
+      resolve(false);
+    };
+    xhr.send(JSON.stringify(projects));
+  });
 }
 
 function loadFromSheets(){
   return new Promise((resolve)=>{
     document.getElementById('save-indicator').textContent='クラウドから読込中...';
-    const cbName='gasCallback_'+Date.now();
-    const script=document.createElement('script');
-    const timer=setTimeout(()=>{
-      delete window[cbName];script.remove();
-      document.getElementById('save-indicator').textContent='ローカルデータを使用中';
-      resolve(false);
-    },8000);
+    const cbName='cb'+Date.now();
     window[cbName]=function(data){
-      clearTimeout(timer);delete window[cbName];script.remove();
+      delete window[cbName];
       try{
         if(Array.isArray(data)&&data.length>0){
           projects=data;
@@ -398,8 +399,27 @@ function loadFromSheets(){
       document.getElementById('save-indicator').textContent='ローカルデータを使用中';
       resolve(false);
     };
-    script.src=GAS_URL+'?callback='+cbName+'&t='+Date.now();
-    document.head.appendChild(script);
+    // scriptタグをdocument.writeで強制的に同期読み込み
+    const url=GAS_URL+'?callback='+cbName+'&t='+Date.now();
+    fetch(url,{mode:'no-cors'}).catch(()=>{});
+    // XHRでリダイレクト先を追う
+    const xhr=new XMLHttpRequest();
+    xhr.open('GET',url,true);
+    xhr.onload=function(){
+      try{
+        const txt=xhr.responseText;
+        const match=txt.match(/\w+\(([\s\S]*)\)/);
+        if(match){
+          const data=JSON.parse(match[1]);
+          window[cbName](data);return;
+        }
+      }catch(e){}
+      window[cbName]([]);
+    };
+    xhr.onerror=function(){window[cbName]([]);};
+    xhr.timeout=8000;
+    xhr.ontimeout=function(){window[cbName]([]);};
+    xhr.send();
   });
 }
 
