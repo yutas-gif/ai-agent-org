@@ -857,7 +857,9 @@ function showTyp(n){const ca=document.getElementById('ca');if(!ca)return;const d
 function remTyp(){const t=document.getElementById('typ');if(t)t.remove();}
 
 async function callAg(agent,hist){
-  const sys=`あなたは「${agent.name}」(役割: ${agent.desc})。プロジェクト「${cur.name}」参加中。タスク: ${cur.tasks.map(t=>(t.done?'✓':'□')+t.text).join(', ')}。50〜120字で日本語で答えてください。`;
+  const projName=cur?cur.name:'（プロジェクト未選択）';
+  const taskList=cur?cur.tasks.map(t=>(t.done?'✓':'□')+t.text).join(', '):'なし';
+  const sys=`あなたは「${agent.name}」(役割: ${agent.desc})。プロジェクト「${projName}」参加中。タスク: ${taskList}。50〜120字で日本語で答えてください。`;
   const keys=loadKeys();
   if(agent.model==='gemini'){
     const gkey=keys.gemini||'';
