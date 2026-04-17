@@ -617,6 +617,7 @@ async function genWeekReport(){
     return`プロジェクト「${p.name}」(${p.archived?'アーカイブ':'進行中'}): 進捗${pct}%, タスク${d}/${p.tasks.length}完了`;
   }).join('\n');
   try{
+    const keys=loadKeys();const ckey=keys.claude||'';
     const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':ckey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:500,messages:[{role:'user',content:`以下のプロジェクト状況を元に、週次レポートを日本語で作成してください。全体の評価、各プロジェクトの状況、今週のおすすめアクションを含めてください:\n${summary}`}]})});
     const d=await r.json();
     const txt=d.content?.[0]?.text||'生成できませんでした';
@@ -710,6 +711,7 @@ async function aiGenerateTasks(){
   const btn=document.querySelector('.ai-task-btn');btn.textContent='✦ 分析中...';btn.disabled=true;
   try{
     const prompt=`プロジェクト「${cur.name}」に必要なタスクを5〜7個提案してください。既存: ${cur.tasks.map(t=>t.text).join(', ')||'なし'}\nJSON形式のみ: {"tasks":[{"text":"タスク名","priority":"high|mid|low"}]}`;
+    const keys=loadKeys();const ckey=keys.claude||'';
     const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':ckey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:400,messages:[{role:'user',content:prompt}]})});
     const d=await r.json();
     const txt=(d.content?.[0]?.text||'{}').replace(/```json|```/g,'').trim();
@@ -795,6 +797,7 @@ async function fetchSuggestion(){
   suggestion={loading:true};renderA();
   const presetList=PRESETS.map(p=>`${p.id}:${p.name}(${p.desc})`).join(', ');
   try{
+    const keys=loadKeys();const ckey=keys.claude||'';
     const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':ckey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:500,messages:[{role:'user',content:`プロジェクト「${cur.name}」に最適なチームを提案。利用可能: ${presetList}\nJSON形式のみ: {"reason":"2〜3文","agents":[{"id":"id","reason":"一言"}]}\n3〜5名、idはリストにある値のみ`}]})});
     const d=await r.json();const txt=(d.content?.[0]?.text||'{}').replace(/```json|```/g,'').trim();
     const parsed=JSON.parse(txt);
@@ -865,21 +868,24 @@ async function callAg(agent,hist){
     const gkey=keys.gemini||'';
     if(!gkey){return '（Gemini APIキーが設定されていません。左下のAPI設定から入力してください）';}
     const contents=[{role:'user',parts:[{text:sys+'\n\n'+hist.map(h=>h.content).join('\n')}]}];
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${gkey}`,{method:'POST',headers:{'Content-Type':'application/json','x-api-key':ckey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({contents,generationConfig:{maxOutputTokens:250}})});
+    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+gkey,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents,generationConfig:{maxOutputTokens:250}})});
     const d=await r.json();
     return d.candidates?.[0]?.content?.parts?.[0]?.text||'（応答なし）';
   }
   const ckey=keys.claude||'';
   if(!ckey){return '（Claude APIキーが設定されていません。左下のAPI設定から入力してください）';}
-  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':ckey,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:250,system:sys,messages:hist})});
-  const d=await r.json();return d.content?.[0]?.text||'（応答なし）';
+  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':ckey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:250,system:sys,messages:hist})});
+  const d=await r.json();
+  return d.content?.[0]?.text||'（応答なし）';
 }
 
 async function send(){
-  if(thinking)return;const i=document.getElementById('ci');const txt=i.value.trim();if(!txt)return;i.value='';
+  if(thinking)return;
+  if(!cur){toast('プロジェクトを選択してください');return;}
+  const i=document.getElementById('ci');const txt=i.value.trim();if(!txt)return;i.value='';
   pushM({role:'user',aname:'あなた',text:txt,time:now()});
   thinking=true;document.getElementById('sb').disabled=true;
-  const agents=cur.agents.length?cur.agents:[PRESETS[0]];
+  const agents=(cur.agents&&cur.agents.length)?cur.agents:[PRESETS[0]];
   const ag=mentionTarget?agents.find(a=>a.id===mentionTarget)||agents[0]:agents[Math.floor(Math.random()*agents.length)];
   showTyp(ag.name);
   try{const t=await callAg(ag,[{role:'user',content:txt}]);remTyp();pushM({role:'agent',agent:ag,aname:ag.name,text:t,time:now()});}
@@ -897,9 +903,10 @@ async function debate(){
   thinking=false;document.getElementById('sb').disabled=false;
 }
 async function summarizeChat(){
-  if(thinking||cur.chat.length<2)return;
+  if(thinking||!cur||cur.chat.length<2)return;
   thinking=true;document.getElementById('sb').disabled=true;showTyp('要約AI');
   try{
+    const keys=loadKeys();const ckey=keys.claude||'';
     const log=cur.chat.map(m=>`[${m.role==='user'?'あなた':m.aname}]: ${m.text}`).join('\n');
     const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':ckey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:300,messages:[{role:'user',content:`以下のチャットを3〜5行で要約してください:\n${log}`}]})});
     const d=await r.json();remTyp();pushM({role:'summary',aname:'要約AI',text:d.content?.[0]?.text||'要約できませんでした',time:now()});
@@ -907,9 +914,10 @@ async function summarizeChat(){
   thinking=false;document.getElementById('sb').disabled=false;
 }
 async function riskAnalysis(){
-  if(thinking)return;
+  if(thinking||!cur)return;
   thinking=true;document.getElementById('sb').disabled=true;showTyp('リスク分析AI');
   try{
+    const keys=loadKeys();const ckey=keys.claude||'';
     const info=`プロジェクト: ${cur.name}\nタスク: ${cur.tasks.map(t=>(t.done?'完了':'未完')+':'+t.text+(t.dep?'(依存あり)':'')).join(', ')}\nエージェント: ${cur.agents.map(a=>a.name).join(', ')}`;
     const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':ckey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:350,messages:[{role:'user',content:`以下のプロジェクトのリスクを3点指摘し、対策を簡潔に提案してください:\n${info}`}]})});
     const d=await r.json();remTyp();pushM({role:'risk',aname:'リスク分析AI',text:d.content?.[0]?.text||'分析できませんでした',time:now()});
